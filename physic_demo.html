@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magnetic Spin Simulation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #f4f4f5; 
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            user-select: none;
+        }
+        #canvas-container { 
+            width: 100vw; 
+            height: 100vh; 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            z-index: 1; 
+        }
+        
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+        }
+
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]:focus { outline: none; }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 18px;
+            width: 18px;
+            border-radius: 50%;
+            background: #ef4444;
+            cursor: pointer;
+            margin-top: -7px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            border: 2px solid white;
+            transition: transform 0.1s;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #e2e8f0;
+            border-radius: 2px;
+        }
+        
+        /* Blue slider for J */
+        input[type=range].slider-blue::-webkit-slider-thumb { background: #3b82f6; }
+        input[type=range].slider-purple::-webkit-slider-thumb { background: #8b5cf6; }
+
+        .cursor-grab { cursor: grab; }
+        .cursor-grabbing { cursor: grabbing !important; }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+
+    <div id="control-panel" class="absolute top-6 left-6 z-10 w-[340px] glass-panel rounded-2xl flex flex-col pointer-events-auto">
+        <div id="panel-header" class="px-5 py-4 border-b border-gray-100 flex justify-between items-center cursor-grab rounded-t-2xl hover:bg-gray-50/50 transition-colors">
+            <h1 class="text-xl font-bold text-gray-800 tracking-tight pointer-events-none">Magnetic Crystal Lattice</h1>
+        </div>
+
+        <div class="p-5 flex flex-col gap-5">
+            <p id="main-desc" class="text-sm text-gray-500 leading-relaxed">Simulation of spin dynamics under the influence of temperature and magnetic field.</p>
+            
+            <div class="flex bg-gray-100 p-1 rounded-lg">
+                <button onclick="switchMode('lattice')" id="tab-lattice" class="flex-1 py-1.5 text-xs font-semibold rounded-md shadow-sm bg-white text-gray-800 transition-all">2D Lattice</button>
+                <button onclick="switchMode('pair')" id="tab-pair" class="flex-1 py-1.5 text-xs font-semibold rounded-md text-gray-500 hover:text-gray-700 transition-all">Spin Pair</button>
+                <button onclick="switchMode('magnon')" id="tab-magnon" class="flex-1 py-1.5 text-xs font-semibold rounded-md text-gray-500 hover:text-gray-700 transition-all">Spin Wave</button>
+            </div>
+
+            <div id="dynamic-controls" class="space-y-6">
+                
+                <div id="controls-lattice" class="space-y-5">
+                    <div class="space-y-2">
+                        <label class="text-sm font-semibold text-gray-700">Material State</label>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button id="btn-paramagnet" class="py-2 px-3 text-sm rounded-lg border border-red-500 bg-red-50 text-red-700 font-semibold transition-all">Paramagnetic</button>
+                            <button id="btn-ferromagnet" class="py-2 px-3 text-sm rounded-lg border border-transparent bg-gray-100 text-gray-600 font-semibold hover:bg-gray-200 transition-all">Ferromagnetic</button>
+                        </div>
+                    </div>
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-center">
+                            <label class="text-sm font-semibold text-gray-700">External Field (B)</label>
+                            <span id="field-value" class="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-600">0.00 T</span>
+                        </div>
+                        <input type="range" id="field-slider" min="0" max="1" step="0.01" value="0">
+                    </div>
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-center">
+                            <label class="text-sm font-semibold text-gray-700">Temperature (T)</label>
+                            <span id="temp-value" class="text-xs font-mono bg-orange-100 px-2 py-1 rounded text-orange-700">300 K</span>
+                        </div>
+                        <input type="range" id="temp-slider" min="0" max="1000" step="10" value="300">
+                    </div>
+                </div>
+
+                <div id="controls-pair" class="space-y-5 hidden">
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-center">
+                            <label class="text-sm font-semibold text-gray-700">Exchange Interaction (J)</label>
+                            <span id="pair-j-value" class="text-xs font-mono bg-blue-100 px-2 py-1 rounded text-blue-700">1.0</span>
+                        </div>
+                        <input type="range" id="pair-j-slider" class="slider-blue" min="-1" max="1" step="0.05" value="1">
+                        <p class="text-[11px] text-gray-400 mt-1">J > 0: Ferromagnetic (Parallel). J < 0: Antiferromagnetic (Antiparallel).</p>
+                    </div>
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-center">
+                            <label class="text-sm font-semibold text-gray-700">Temperature (T)</label>
+                            <span id="pair-temp-value" class="text-xs font-mono bg-orange-100 px-2 py-1 rounded text-orange-700">100 K</span>
+                        </div>
+                        <input type="range" id="pair-temp-slider" min="0" max="1000" step="10" value="100">
+                    </div>
+                </div>
+
+                <div id="controls-magnon" class="space-y-5 hidden">
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-center">
+                            <label class="text-sm font-semibold text-gray-700">Wavenumber (k)</label>
+                            <span id="magnon-k-value" class="text-xs font-mono bg-purple-100 px-2 py-1 rounded text-purple-700">1.2 rad/m</span>
+                        </div>
+                        <input type="range" id="magnon-k-slider" class="slider-purple" min="0.1" max="3" step="0.1" value="1.2">
+                    </div>
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-center">
+                            <label class="text-sm font-semibold text-gray-700">Angular Frequency (ω)</label>
+                            <span id="magnon-w-value" class="text-xs font-mono bg-purple-100 px-2 py-1 rounded text-purple-700">3.0 rad/s</span>
+                        </div>
+                        <input type="range" id="magnon-w-slider" class="slider-purple" min="0" max="10" step="0.5" value="3.0">
+                    </div>
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-center">
+                            <label class="text-sm font-semibold text-gray-700">Tilt Angle (θ)</label>
+                            <span id="magnon-tilt-value" class="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-600">45°</span>
+                        </div>
+                        <input type="range" id="magnon-tilt-slider" min="5" max="85" step="1" value="45">
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <div class="absolute bottom-8 left-0 w-full flex justify-center pointer-events-none z-10">
+        <div class="glass-panel px-6 py-3 rounded-xl text-center max-w-2xl mx-4 shadow-lg">
+            <p id="caption-text" class="text-sm md:text-base text-gray-800 font-medium">
+                In a paramagnetic material, these spins are randomly oriented under the influence of temperature.
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // UI LOGIC: DRAG AND DROP PANEL
+        // ==========================================
+        const panel = document.getElementById('control-panel');
+        const header = document.getElementById('panel-header');
+        let isDragging = false, dragStartX, dragStartY, initialLeft, initialTop;
+
+        header.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            header.classList.add('cursor-grabbing');
+            dragStartX = e.clientX; dragStartY = e.clientY;
+            const rect = panel.getBoundingClientRect();
+            initialLeft = rect.left; initialTop = rect.top;
+            panel.style.left = initialLeft + 'px'; panel.style.top = initialTop + 'px';
+            panel.style.right = 'auto'; panel.style.bottom = 'auto';
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
+
+        function onMouseMove(e) {
+            if (!isDragging) return;
+            panel.style.left = (initialLeft + (e.clientX - dragStartX)) + 'px';
+            panel.style.top = (initialTop + (e.clientY - dragStartY)) + 'px';
+        }
+
+        function onMouseUp() {
+            isDragging = false;
+            header.classList.remove('cursor-grabbing');
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        }
+
+        // ==========================================
+        // INITIALIZE THREE.JS SCENE
+        // ==========================================
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xf4f4f5); 
+
+        const d = 8;
+        let aspect = window.innerWidth / window.innerHeight;
+        const camera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, 1, 1000);
+        camera.position.set(15, 12, 15);
+        camera.lookAt(scene.position);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true; 
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2 - 0.05; 
+        
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+        dirLight.position.set(10, 20, 10);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        scene.add(dirLight);
+
+        let simulationGroup = new THREE.Group();
+        scene.add(simulationGroup);
+
+        // Common assets
+        const sphereGeo = new THREE.IcosahedronGeometry(0.35, 1);
+        const sphereMat = new THREE.MeshStandardMaterial({ color: 0xff4d4d, flatShading: true, roughness: 0.8 });
+        
+        function createSpinArrow() {
+            const group = new THREE.Group();
+            const arrowMat = new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.6 });
+            const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.9, 8), arrowMat);
+            shaft.position.y = 0.45; shaft.castShadow = true;
+            const head = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.35, 8), arrowMat);
+            head.position.y = 1.05; head.castShadow = true;
+            group.add(shaft, head);
+            return group; // Default arrow pointing along +Y axis
+        }
+
+        function getRandomQuaternion() {
+            return new THREE.Quaternion().setFromEuler(new THREE.Euler(
+                Math.random() * Math.PI * 2, Math.random() * Math.PI * 2, Math.random() * Math.PI * 2
+            ));
+        }
+
+        // Clean up memory before switching scenes
+        function clearScene() {
+            while(simulationGroup.children.length > 0){ 
+                const obj = simulationGroup.children[0];
+                simulationGroup.remove(obj); 
+                if(obj.geometry) obj.geometry.dispose();
+                if(obj.material) {
+                    if(Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
+                    else obj.material.dispose();
+                }
+            }
+            spins = [];
+            extraObjects = [];
+        }
+
+        // ==========================================
+        // STATE VARIABLES
+        // ==========================================
+        let currentMode = 'lattice';
+        let spins = [];
+        let extraObjects = []; 
+
+        // State: Lattice
+        let isParamagnet = true;
+        let extField = 0; 
+        let tempLattice = 300; 
+        let alignedQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), 0); // Y axis
+
+        // State: Pair
+        let pairJ = 1.0; 
+        let pairTemp = 100;
+
+        // State: Magnon
+        let magnonK = 1.2;
+        let magnonW = 3.0;
+        let magnonTilt = 45; // Degrees
+        const arrowLength = 1.05; // Actual arrow length (0.45 shaft + 0.6 head... relative ~1.05 to tip)
+
+        // ==========================================
+        // INITIALIZE SCENES
+        // ==========================================
+
+        function initLattice() {
+            clearScene();
+            const baseMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 });
+            const basePlate = new THREE.Mesh(new THREE.BoxGeometry(14, 0.5, 10), baseMat);
+            basePlate.position.y = -0.5; basePlate.receiveShadow = true;
+            simulationGroup.add(basePlate);
+
+            const cols = 4, rows = 3, spacing = 2.5;
+            const startX = -((cols - 1) * spacing) / 2;
+            const startZ = -((rows - 1) * spacing) / 2;
+            const lineMat = new THREE.LineBasicMaterial({ color: 0x9ca3af, linewidth: 1 });
+            
+            for (let i = 0; i < rows; i++) {
+                const z = startZ + i * spacing;
+                simulationGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(startX - 1, 0, z), new THREE.Vector3(startX + (cols - 1) * spacing + 1, 0, z)
+                ]), lineMat));
+            }
+            for (let j = 0; j < cols; j++) {
+                const x = startX + j * spacing;
+                simulationGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(x, 0, startZ - 1), new THREE.Vector3(x, 0, startZ + (rows - 1) * spacing + 1)
+                ]), lineMat));
+            }
+
+            for (let i = 0; i < rows; i++) {
+                for (let j = 0; j < cols; j++) {
+                    const atom = new THREE.Mesh(sphereGeo, sphereMat);
+                    atom.position.set(startX + j * spacing, 0, startZ + i * spacing);
+                    atom.castShadow = true;
+                    
+                    const arrow = createSpinArrow();
+                    atom.add(arrow);
+                    const randomQuat = getRandomQuaternion();
+                    arrow.quaternion.copy(randomQuat);
+
+                    simulationGroup.add(atom);
+                    spins.push({
+                        atom: atom, mesh: arrow, targetQuat: randomQuat.clone(),
+                        nextUpdate: Math.random() * 2, phaseOffset: Math.random() * Math.PI * 2
+                    });
+                }
+            }
+        }
+
+        function initPair() {
+            clearScene();
+            const baseMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 });
+            const basePlate = new THREE.Mesh(new THREE.BoxGeometry(10, 0.5, 8), baseMat);
+            basePlate.position.y = -0.5; basePlate.receiveShadow = true;
+            simulationGroup.add(basePlate);
+
+            const xPositions = [-1.5, 1.5];
+            xPositions.forEach(x => {
+                const atom = new THREE.Mesh(sphereGeo, sphereMat);
+                atom.position.set(x, 0, 0); atom.castShadow = true;
+                const arrow = createSpinArrow();
+                atom.add(arrow);
+                simulationGroup.add(atom);
+                spins.push({ atom: atom, mesh: arrow });
+            });
+
+            // Bonding cylinder
+            const bondGeo = new THREE.CylinderGeometry(0.15, 0.15, 3, 16);
+            bondGeo.rotateZ(Math.PI / 2); 
+            const bondMat = new THREE.MeshStandardMaterial({ color: 0x88cdaa, roughness: 0.5, transparent: true, opacity: 0.8 });
+            const bond = new THREE.Mesh(bondGeo, bondMat);
+            simulationGroup.add(bond);
+            extraObjects.push({ type: 'bond', mesh: bond });
+        }
+
+        function initSpinWave() {
+            clearScene();
+            const baseMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 });
+            const basePlate = new THREE.Mesh(new THREE.BoxGeometry(20, 0.5, 6), baseMat);
+            basePlate.position.y = -0.5; basePlate.receiveShadow = true;
+            simulationGroup.add(basePlate);
+
+            const numAtoms = 10;
+            const spacing = 1.5;
+            const startX = -((numAtoms - 1) * spacing) / 2;
+            const lineMat = new THREE.LineBasicMaterial({ color: 0xd1d5db });
+            
+            // Horizontal line
+            simulationGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(startX - 1, 0, 0), new THREE.Vector3(startX + (numAtoms - 1) * spacing + 1, 0, 0)
+            ]), lineMat));
+
+            // Base circle on XZ plane (Radius 1)
+            const circleGeo = new THREE.BufferGeometry();
+            const circlePoints = [];
+            for(let k = 0; k <= 64; k++) {
+                const theta = (k / 64) * Math.PI * 2;
+                circlePoints.push(new THREE.Vector3(Math.cos(theta), 0, Math.sin(theta)));
+            }
+            circleGeo.setFromPoints(circlePoints);
+            const circleMat = new THREE.LineBasicMaterial({ color: 0x9ca3af, transparent: true, opacity: 0.4 });
+
+            for (let i = 0; i < numAtoms; i++) {
+                const x = startX + i * spacing;
+                const atom = new THREE.Mesh(sphereGeo, sphereMat);
+                atom.position.set(x, 0, 0); atom.castShadow = true;
+                
+                const arrow = createSpinArrow();
+                atom.add(arrow);
+                simulationGroup.add(atom);
+                spins.push({ atom: atom, mesh: arrow });
+
+                // Add circular orbit
+                const circle = new THREE.Line(circleGeo, circleMat);
+                circle.position.x = x;
+                simulationGroup.add(circle);
+                extraObjects.push({ type: 'circle', mesh: circle });
+            }
+
+            // Sine wave line connecting waves
+            const waveGeo = new THREE.BufferGeometry();
+            const waveLine = new THREE.Line(waveGeo, new THREE.LineBasicMaterial({ color: 0xef4444, linewidth: 2 }));
+            simulationGroup.add(waveLine);
+            extraObjects.push({ type: 'waveline', mesh: waveLine });
+        }
+
+        // ==========================================
+        // UI EVENT LISTENERS FOR SLIDERS
+        // ==========================================
+        const captionText = document.getElementById('caption-text');
+        const mainDesc = document.getElementById('main-desc');
+
+        // Lattice Handlers
+        document.getElementById('btn-paramagnet').addEventListener('click', () => { isParamagnet = true; updateUIColors(); });
+        document.getElementById('btn-ferromagnet').addEventListener('click', () => { isParamagnet = false; updateUIColors(); });
+        document.getElementById('field-slider').addEventListener('input', (e) => { extField = parseFloat(e.target.value); document.getElementById('field-value').innerText = extField.toFixed(2) + " T"; });
+        document.getElementById('temp-slider').addEventListener('input', (e) => { tempLattice = parseFloat(e.target.value); document.getElementById('temp-value').innerText = tempLattice + " K"; });
+
+        function updateUIColors() {
+            if (isParamagnet) {
+                document.getElementById('btn-paramagnet').className = "py-2.5 px-3 text-sm rounded-lg border border-red-500 bg-red-50 text-red-700 font-semibold transition-all";
+                document.getElementById('btn-ferromagnet').className = "py-2.5 px-3 text-sm rounded-lg border border-transparent bg-gray-100 text-gray-600 font-semibold hover:bg-gray-200 transition-all";
+                captionText.innerText = "In Paramagnetic material, spins are randomly oriented.";
+            } else {
+                document.getElementById('btn-ferromagnet').className = "py-2.5 px-3 text-sm rounded-lg border border-blue-500 bg-blue-50 text-blue-700 font-semibold transition-all";
+                document.getElementById('btn-paramagnet').className = "py-2.5 px-3 text-sm rounded-lg border border-transparent bg-gray-100 text-gray-600 font-semibold hover:bg-gray-200 transition-all";
+                captionText.innerText = "In Ferromagnetic material, spins align parallel to form magnetic domains.";
+            }
+        }
+
+        // Pair Handlers
+        document.getElementById('pair-j-slider').addEventListener('input', (e) => {
+            pairJ = parseFloat(e.target.value);
+            document.getElementById('pair-j-value').innerText = pairJ > 0 ? `+${pairJ.toFixed(2)}` : pairJ.toFixed(2);
+        });
+        document.getElementById('pair-temp-slider').addEventListener('input', (e) => {
+            pairTemp = parseFloat(e.target.value);
+            document.getElementById('pair-temp-value').innerText = pairTemp + " K";
+        });
+
+        // Magnon Handlers
+        document.getElementById('magnon-k-slider').addEventListener('input', (e) => {
+            magnonK = parseFloat(e.target.value);
+            document.getElementById('magnon-k-value').innerText = magnonK.toFixed(1) + " rad/m";
+        });
+        document.getElementById('magnon-w-slider').addEventListener('input', (e) => {
+            magnonW = parseFloat(e.target.value);
+            document.getElementById('magnon-w-value').innerText = magnonW.toFixed(1) + " rad/s";
+        });
+        document.getElementById('magnon-tilt-slider').addEventListener('input', (e) => {
+            magnonTilt = parseFloat(e.target.value);
+            document.getElementById('magnon-tilt-value').innerText = magnonTilt + "°";
+        });
+
+        // Switch Tabs
+        window.switchMode = function(mode) {
+            currentMode = mode;
+            
+            // Handle Tabs Active State
+            ['lattice', 'pair', 'magnon'].forEach(m => {
+                const tab = document.getElementById(`tab-${m}`);
+                tab.className = m === mode 
+                    ? "flex-1 py-1.5 text-xs font-semibold rounded-md shadow-sm bg-white text-gray-800 transition-all" 
+                    : "flex-1 py-1.5 text-xs font-semibold rounded-md text-gray-500 hover:text-gray-700 transition-all";
+                
+                // Show/hide corresponding control block
+                const controlBlock = document.getElementById(`controls-${m}`);
+                if(controlBlock) controlBlock.classList.toggle('hidden', m !== mode);
+            });
+
+            if (mode === 'lattice') {
+                mainDesc.innerText = "Simulation of spin dynamics under the effect of temperature and magnetic field.";
+                initLattice(); updateUIColors();
+            } else if (mode === 'pair') {
+                mainDesc.innerText = "Investigate the microscopic exchange interaction between two adjacent spins.";
+                captionText.innerHTML = "Adjust <strong>J</strong> to see the difference between <strong>Ferromagnetic (J>0)</strong> and <strong>Antiferromagnetic (J<0)</strong> coupling.";
+                initPair();
+            } else if (mode === 'magnon') {
+                mainDesc.innerText = "Propagation of magnetic excitations (spin waves) along a 1D lattice.";
+                captionText.innerHTML = "Change frequency (ω), wavenumber (k), and amplitude (θ) to observe the perfect precession of a <strong>Magnon</strong>.";
+                initSpinWave();
+            }
+        }
+
+        // ==========================================
+        // RENDER LOOP & PHYSICS UPDATE
+        // ==========================================
+        const clock = new THREE.Clock();
+        const yAxis = new THREE.Vector3(0, 1, 0);
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = clock.getElapsedTime();
+            controls.update();
+
+            if (currentMode === 'lattice') {
+                const tempFactor = tempLattice / 1000;
+                spins.forEach(spin => {
+                    if (isParamagnet) {
+                        if (time > spin.nextUpdate) {
+                            spin.targetQuat = getRandomQuaternion();
+                            if (extField > 0) {
+                                let bias = extField * (1.2 - tempFactor);
+                                bias = Math.min(Math.max(bias, 0), 1); 
+                                spin.targetQuat.slerp(alignedQuat, bias);
+                            }
+                            spin.nextUpdate = time + (0.1 + Math.random() * 0.4) * (1.5 - tempFactor);
+                        }
+                        spin.mesh.quaternion.slerp(spin.targetQuat, 0.05 + (extField * 0.05));
+                    } else {
+                        const target = alignedQuat.clone();
+                        if (tempFactor > 0) {
+                            const wobble = tempFactor * 0.8;
+                            const speed = time * (5 + tempFactor * 5) + spin.phaseOffset;
+                            target.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(
+                                Math.sin(speed) * wobble, Math.cos(speed*0.8) * wobble, Math.sin(speed*1.2) * wobble
+                            )));
+                        }
+                        target.slerp(alignedQuat, extField * 0.6);
+                        spin.mesh.quaternion.slerp(target, 0.1);
+                    }
+                });
+            } 
+            
+            else if (currentMode === 'pair') {
+                const tempFactor = pairTemp / 1000;
+                const spin1 = spins[0];
+                const spin2 = spins[1];
+
+                // Spin 1 oscillates randomly around Y axis
+                const target1 = alignedQuat.clone(); 
+                if (tempFactor > 0) {
+                    target1.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(
+                        Math.sin(time * 6) * tempFactor, 0, Math.cos(time * 5) * tempFactor
+                    )));
+                }
+                spin1.mesh.quaternion.slerp(target1, 0.1);
+
+                // Spin 2 is dragged by Spin 1 depending on exchange coefficient J
+                const target2 = spin1.mesh.quaternion.clone();
+                // If Antiferromagnetic (J < 0), spin 2 flips 180 degrees
+                if (pairJ < 0) target2.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), Math.PI));
+                
+                // Add independent noise for Spin 2
+                if (tempFactor > 0) {
+                    target2.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(
+                        Math.cos(time * 7) * tempFactor, 0, Math.sin(time * 6.5) * tempFactor
+                    )));
+                }
+                
+                // Pulling force strength based on absolute value of J
+                spin2.mesh.quaternion.slerp(target2, 0.05 + Math.abs(pairJ) * 0.2);
+                spin2.mesh.quaternion.slerp(alignedQuat, 0.02); // Tendency to pull back to Y to avoid drifting away
+
+                // Change bond color
+                const bondObj = extraObjects.find(o => o.type === 'bond');
+                if (bondObj) {
+                    bondObj.mesh.material.color.setHex(pairJ >= 0 ? 0x88cdaa : 0xef4444); // Cyan or Red
+                    bondObj.mesh.material.opacity = 0.2 + 0.6 * Math.abs(pairJ);
+                }
+            }
+
+            else if (currentMode === 'magnon') {
+                const tiltRad = magnonTilt * Math.PI / 180;
+                const radius = arrowLength * Math.sin(tiltRad);
+                const heightY = arrowLength * Math.cos(tiltRad);
+
+                // 1. Update circle dimensions
+                const circles = extraObjects.filter(o => o.type === 'circle');
+                circles.forEach(c => {
+                    c.mesh.scale.set(radius, 1, radius); // Scale radius on XZ plane
+                    c.mesh.position.y = heightY; // Raise to top
+                });
+
+                // 2. Calculate accurate quantum physics Quaternion & Wave Points
+                const wavePoints = [];
+                spins.forEach((spin) => {
+                    const x = spin.atom.position.x;
+                    const phase = magnonK * x - magnonW * time;
+                    
+                    // Direction Vector equation precessing around Y axis
+                    const dir = new THREE.Vector3(
+                        Math.cos(phase) * Math.sin(tiltRad),
+                        Math.cos(tiltRad),
+                        Math.sin(phase) * Math.sin(tiltRad)
+                    );
+                    
+                    // Use UnitVectors to ensure no Euler angle errors
+                    spin.mesh.quaternion.setFromUnitVectors(yAxis, dir.normalize());
+
+                    // Accurate arrow tip coordinates on the circle's edge
+                    const tipX = x + Math.cos(phase) * radius;
+                    const tipY = heightY;
+                    const tipZ = Math.sin(phase) * radius;
+                    wavePoints.push(new THREE.Vector3(tipX, tipY, tipZ));
+                });
+
+                // 3. Draw Sine Wave Line
+                const waveLineObj = extraObjects.find(o => o.type === 'waveline');
+                if (waveLineObj) waveLineObj.mesh.geometry.setFromPoints(wavePoints);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        initLattice();
+        animate();
+
+        window.addEventListener('resize', () => {
+            aspect = window.innerWidth / window.innerHeight;
+            camera.left = -d * aspect; camera.right = d * aspect;
+            camera.top = d; camera.bottom = -d;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+    </script>
+</body>
+</html>
